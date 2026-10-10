@@ -2,10 +2,17 @@ import type { PdfDict } from "#src/objects/pdf-dict";
 import { PdfRef } from "#src/objects/pdf-ref";
 import { PdfStream } from "#src/objects/pdf-stream";
 import { loadFixture } from "#src/test-utils";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { EmbeddedFont } from "./embedded-font";
-import { createFontObjects, generateSubsetTag, registerFontObjects } from "./font-embedder";
+import {
+  createFontObjects,
+  createFontObjectsFull,
+  generateSubsetTag,
+  registerFontObjects,
+} from "./font-embedder";
+import { parseToUnicode } from "./to-unicode";
 
 describe("generateSubsetTag", () => {
   it("should generate 6 uppercase letters", () => {
@@ -107,6 +114,67 @@ describe("createFontObjects", () => {
     expect(text).toContain("begincmap");
     expect(text).toContain("endcmap");
     expect(text).toContain("begincodespacerange");
+  });
+});
+
+describe("createFontObjectsFull", () => {
+  it("retains used Japanese mappings while embedding the complete font", async () => {
+    const fontBytes = await loadFixture("fonts", "ttf/NotoSansJP-Regular.ttf");
+    const font = EmbeddedFont.fromBytes(fontBytes);
+    font.encodeText("2026年9月16日");
+
+    const result = createFontObjectsFull(font);
+    const toUnicode = parseToUnicode(result.toUnicodeStream.data);
+
+    for (const character of "年月日") {
+      const gid = font.program.getGlyphId(character.codePointAt(0)!);
+      expect(gid).toBeGreaterThan(0);
+      expect(toUnicode.get(gid)).toBe(character);
+    }
+
+    expect(createHash("sha256").update(result.fontStream.data).digest("hex")).toBe(
+      createHash("sha256").update(fontBytes).digest("hex"),
+    );
+    expect(result.type0Dict.getName("BaseFont")?.value).toBe(font.program.postScriptName);
+    expect(result.cidFontDict.getName("CIDToGIDMap")?.value).toBe("Identity");
+  });
+
+  it("keeps default-range mappings for unused characters", async () => {
+    const fontBytes = await loadFixture("fonts", "ttf/LiberationSans-Regular.ttf");
+    const font = EmbeddedFont.fromBytes(fontBytes);
+    const result = createFontObjectsFull(font);
+    const toUnicode = parseToUnicode(result.toUnicodeStream.data);
+
+    for (const character of "ABC123") {
+      expect(toUnicode.get(font.program.getGlyphId(character.codePointAt(0)!))).toBe(character);
+    }
+  });
+
+  it("prefers the tracked Unicode value when code points share a glyph", async () => {
+    const fontBytes = await loadFixture("fonts", "ttf/NotoSansJP-Regular.ttf");
+    const font = EmbeddedFont.fromBytes(fontBytes);
+    const gid = font.program.getGlyphId(0x00a0);
+    expect(gid).toBe(font.program.getGlyphId(0x0020));
+    font.encodeText("\u00a0 ");
+
+    const result = createFontObjectsFull(font);
+    const toUnicode = parseToUnicode(result.toUnicodeStream.data);
+
+    expect(toUnicode.get(gid)).toBe("\u00a0");
+  });
+
+  it("retains used supplementary-plane mappings as surrogate pairs", async () => {
+    const fontBytes = await loadFixture("fonts", "ttf/DejaVuSans.ttf");
+    const font = EmbeddedFont.fromBytes(fontBytes);
+    font.encodeText("😀");
+    const gid = font.program.getGlyphId(0x1f600);
+    expect(gid).toBeGreaterThan(0);
+
+    const result = createFontObjectsFull(font);
+    const toUnicode = parseToUnicode(result.toUnicodeStream.data);
+
+    expect(toUnicode.get(gid)).toBe("😀");
+    expect(new TextDecoder().decode(result.toUnicodeStream.data)).toContain("<D83DDE00>");
   });
 });
 
