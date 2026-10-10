@@ -219,7 +219,7 @@ export function createFontObjectsFull(font: EmbeddedFont): FontEmbedResult {
   const widthsArray = buildFullWidthsArray(program);
 
   // Build ToUnicode CMap for the full font
-  const toUnicodeData = buildFullToUnicodeCMap(program);
+  const toUnicodeData = buildFullToUnicodeCMap(program, font.getGidToCodePointMap());
 
   // Create font stream with full font data
   const fontStreamDict = new PdfDict();
@@ -514,7 +514,10 @@ function buildFullWidthsArray(program: FontProgram): PdfArray {
 /**
  * Build a ToUnicode CMap covering all glyphs in the font.
  */
-function buildFullToUnicodeCMap(program: FontProgram): Uint8Array {
+function buildFullToUnicodeCMap(
+  program: FontProgram,
+  usedGlyphs: ReadonlyMap<number, number>,
+): Uint8Array {
   // Build a gidToCodePoint map for all supported code points
   // With CIDToGIDMap /Identity, content stream contains GIDs
   // ToUnicode maps GID → Unicode code point
@@ -531,6 +534,11 @@ function buildFullToUnicodeCMap(program: FontProgram): Uint8Array {
         }
       }
     }
+  }
+
+  // Keep Unicode mappings for actual text outside the default lookup ranges.
+  for (const [gid, codePoint] of usedGlyphs) {
+    gidToCodePoint.set(gid, codePoint);
   }
 
   return buildToUnicodeCMapFromGids(gidToCodePoint);
