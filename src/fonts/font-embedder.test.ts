@@ -2,6 +2,7 @@ import type { PdfDict } from "#src/objects/pdf-dict";
 import { PdfRef } from "#src/objects/pdf-ref";
 import { PdfStream } from "#src/objects/pdf-stream";
 import { loadFixture } from "#src/test-utils";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { EmbeddedFont } from "./embedded-font";
@@ -131,7 +132,9 @@ describe("createFontObjectsFull", () => {
       expect(toUnicode.get(gid)).toBe(character);
     }
 
-    expect(result.fontStream.data).toEqual(fontBytes);
+    expect(createHash("sha256").update(result.fontStream.data).digest("hex")).toBe(
+      createHash("sha256").update(fontBytes).digest("hex"),
+    );
     expect(result.type0Dict.getName("BaseFont")?.value).toBe(font.program.postScriptName);
     expect(result.cidFontDict.getName("CIDToGIDMap")?.value).toBe("Identity");
   });
