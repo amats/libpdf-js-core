@@ -356,6 +356,10 @@ export function resolveAppearanceFont(
 ): FormFont {
   const candidates: FormFont[] = [];
   const fieldFont = field.getFont();
+  // An explicit usable font has priority; avoid loading unused fallback fonts.
+  if (fieldFont && isEmbeddedFont(fieldFont) && fieldFont.canEncode(text)) {
+    return fieldFont;
+  }
   const defaultFont = acroForm.getDefaultFont();
 
   if (fieldFont) {
